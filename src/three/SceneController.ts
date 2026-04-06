@@ -56,7 +56,6 @@ export class SceneController {
   private frustumMatrix = new THREE.Matrix4();
   private useFrustumCulling = true;
   private freeze = false;
-  private visibleObjectCount = 0;
 
   // Tracking mode
   private trackingTarget: string | null = null;
@@ -568,8 +567,6 @@ export class SceneController {
         if (inFrustum) visibleCount++;
       }
     });
-
-    this.visibleObjectCount = visibleCount;
   }
 
   // Check if camera is beyond the universe boundary and toggle multiverse

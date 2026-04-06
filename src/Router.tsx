@@ -4,8 +4,6 @@ import ErrorBoundary from './components/ErrorBoundary'
 import Layout from './Layout'
 
 const Home = lazy(() => import('./pages/Home'))
-const About = lazy(() => import('./pages/About'))
-const SuspenseExample = lazy(() => import('./pages/SuspenseExample'))
 
 function Router() {
   return (
@@ -14,8 +12,6 @@ function Router() {
         <Routes>
           <Route path="/" element={<Layout />}>
             <Route index element={<Home />} />
-            <Route path="about" element={<About />} />
-            <Route path="suspense-example" element={<SuspenseExample />} />
             <Route
               path='*'
               element={

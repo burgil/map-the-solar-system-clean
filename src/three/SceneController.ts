@@ -491,7 +491,6 @@ export class SceneController {
     );
     this.frustum.setFromProjectionMatrix(this.frustumMatrix);
 
-    let visibleCount = 0;
     const cameraPos = this.camera.position;
 
     // Traverse scene and cull ALL objects
@@ -506,7 +505,6 @@ export class SceneController {
       // Orbit lines are THREE.Line objects whose parent name ends with 'Orbit'
       if (object instanceof THREE.Line && object.parent?.name?.endsWith('Orbit')) {
         object.visible = true;
-        visibleCount++;
         return;
       }
 
@@ -541,10 +539,6 @@ export class SceneController {
         const inRange = distSq < maxDistSq || object.name === 'Sun';
 
         object.visible = inFrustum && inRange;
-
-        if (object.visible) {
-          visibleCount++;
-        }
       }
 
       // Handle InstancedMesh (rings, etc.)
@@ -563,8 +557,6 @@ export class SceneController {
         if (!inFrustum) {
           object.count = 0;
         }
-
-        if (inFrustum) visibleCount++;
       }
     });
   }

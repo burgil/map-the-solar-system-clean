@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import Stats from 'three/addons/libs/stats.module.js';
 import { SolarSystem, AU } from './SolarSystem';
-import { AsteroidBeltBVH } from './AsteroidBeltBVH';
 import { BlackHole } from './BlackHole';
 import { Galaxy } from './Galaxy';
 import { Multiverse } from './Multiverse';
@@ -9,8 +8,6 @@ import { Label3DSystem } from './Label3D';
 import { FlyControls } from './FlyControls';
 import { SolarFlares } from './SolarFlares';
 import { PostProcessing, createSunLensFlare } from './PostProcessing';
-import { type Asteroid } from '@/lib/indexedDB';
-
 // Boundary distance for multiverse transition
 const MULTIVERSE_BOUNDARY = 120000; // Match SKYBOX_RADIUS for seamless transition
 const SKYBOX_RADIUS = 120000; // Just inside the multiverse boundary
@@ -21,7 +18,6 @@ export interface SceneConfig {
   onObjectSelected?: (name: string, position: THREE.Vector3) => void;
   onControlsLocked?: (locked: boolean) => void;
   onTrackingChange?: (isTracking: boolean, target: string | null) => void;
-  onAsteroidLoadProgress?: (loaded: number, total: number) => void;
 }
 
 export class SceneController {
@@ -34,7 +30,6 @@ export class SceneController {
   private stats: Stats;
 
   private solarSystem: SolarSystem;
-  private asteroidBelt: AsteroidBeltBVH;
   private blackHole: BlackHole;
   private galaxy: Galaxy;
   private labelSystem: Label3DSystem;
@@ -71,14 +66,12 @@ export class SceneController {
   private onObjectSelected?: (name: string, position: THREE.Vector3) => void;
   private onControlsLocked?: (locked: boolean) => void;
   private onTrackingChange?: (isTracking: boolean, target: string | null) => void;
-  private onAsteroidLoadProgress?: (loaded: number, total: number) => void;
 
   constructor(config: SceneConfig) {
     this.container = config.container;
     this.onObjectSelected = config.onObjectSelected;
     this.onControlsLocked = config.onControlsLocked;
     this.onTrackingChange = config.onTrackingChange;
-    this.onAsteroidLoadProgress = config.onAsteroidLoadProgress;
 
     // Initialize Three.js
     this.scene = new THREE.Scene();
@@ -135,19 +128,6 @@ export class SceneController {
     console.time('⏱️ SceneController: SolarFlares');
     this.solarFlares = new SolarFlares(this.scene, new THREE.Vector3(0, 0, 0));
     console.timeEnd('⏱️ SceneController: SolarFlares');
-
-    // Create asteroid belt manager (using BatchedMesh + BVH for proper frustum culling)
-    console.time('⏱️ SceneController: AsteroidBeltBVH init');
-    this.asteroidBelt = new AsteroidBeltBVH(this.scene);
-    this.asteroidBelt.onLoadProgress = (loaded: number, total: number) => {
-      this.onAsteroidLoadProgress?.(loaded, total);
-    };
-    console.timeEnd('⏱️ SceneController: AsteroidBeltBVH init');
-
-    // Decorative belts disabled - real asteroid data provides the belt visualization
-    // console.time('⏱️ SceneController: DecorativeBelts');
-    // this.createDecorativeBelts();
-    // console.timeEnd('⏱️ SceneController: DecorativeBelts');
 
     // Create black hole (at galactic center)
     console.time('⏱️ SceneController: BlackHole');
@@ -323,10 +303,6 @@ export class SceneController {
     this.postProcessing.setSize(width, height);
   };
 
-  async loadAsteroids(asteroids: Asteroid[]): Promise<void> {
-    await this.asteroidBelt.loadAsteroids(asteroids);
-  }
-
   flyTo(name: string): void {
     // Handle Multiverse navigation
     if (name === 'Multiverse') {
@@ -449,48 +425,6 @@ export class SceneController {
   //   this.onObjectSelected?.(name, position);
   // }
 
-  flyToAsteroid(asteroid: Asteroid): void {
-    // Release any existing tracking
-    this.stopTracking();
-
-    const position = this.asteroidBelt.getAsteroidPosition(asteroid);
-
-    // Create a temporary 3D label for the asteroid
-    const asteroidName = asteroid.name || asteroid.pdes || 'Unknown Asteroid';
-    this.labelSystem.createLabel({
-      name: asteroidName,
-      position: position.clone().add(new THREE.Vector3(0, 3, 0)),
-      type: 'asteroid',
-      color: 0x00ffff,
-    });
-
-    const offset = new THREE.Vector3(0, 2, 5);
-    const cameraTarget = position.clone().add(offset);
-
-    const startPosition = this.camera.position.clone();
-    const duration = 2000;
-    const startTime = performance.now();
-
-    const animateFly = (now: number): void => {
-      const elapsed = now - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      const eased = progress < 0.5
-        ? 4 * progress * progress * progress
-        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-
-      this.camera.position.lerpVectors(startPosition, cameraTarget, eased);
-      this.controls.lookAt(position.x, position.y, position.z);
-
-      if (progress < 1) {
-        requestAnimationFrame(animateFly);
-      } else {
-        this.onObjectSelected?.(asteroidName, position);
-      }
-    };
-
-    requestAnimationFrame(animateFly);
-  }
-
   setTimeScale(scale: number): void {
     this.solarSystem.setTimeScale(scale);
   }
@@ -503,19 +437,6 @@ export class SceneController {
   // Get simulated time elapsed in seconds
   getSimulatedTime(): number {
     return this.solarSystem.getSimulatedTime();
-  }
-
-  // Get visible object count (from frustum culling)
-  getVisibleAsteroids(): number {
-    // Return combined count: asteroids + other visible objects
-    return this.asteroidBelt.getVisibleCount() + this.visibleObjectCount;
-  }
-
-  // Toggle asteroid belt visibility
-  setAsteroidsVisible(visible: boolean): void {
-    if (this.asteroidBelt.batchedMesh) {
-      this.asteroidBelt.batchedMesh.visible = visible;
-    }
   }
 
   // Toggle post-processing (bloom, lens flare)
@@ -536,23 +457,11 @@ export class SceneController {
   // Toggle frustum culling for entire scene
   setFrustumCullingEnabled(enabled: boolean): void {
     this.useFrustumCulling = enabled;
-    this.asteroidBelt.setFrustumCullingEnabled(enabled);
 
     // If disabling, show all objects
     if (!enabled) {
       this.showAllObjects();
     }
-  }
-
-  // Toggle LOD for asteroids
-  setLODEnabled(enabled: boolean): void {
-    this.asteroidBelt.setLODEnabled(enabled);
-  }
-
-  // Freeze updates (for debugging visibility)
-  setFreeze(freeze: boolean): void {
-    this.freeze = freeze;
-    this.asteroidBelt.setFreeze(freeze);
   }
 
   // Show all scene objects (when culling disabled)
@@ -570,9 +479,6 @@ export class SceneController {
   // Reusable temp objects for frustum checks (avoid per-frame allocations)
   private tempSphere = new THREE.Sphere();
   private tempWorldPos = new THREE.Vector3();
-
-  // Frame counter for throttling expensive per-frame operations
-  private frameCount = 0;
 
   // Perform frustum culling on all scene objects
   private performSceneCulling(): void {
@@ -596,10 +502,6 @@ export class SceneController {
 
       // Skip starfield (always visible - it's the background)
       if (object.name === 'Starfield') return;
-
-      // Skip the asteroid belt BatchedMesh - it handles its own BVH-based
-      // per-instance culling internally via computeBVH / onBeforeRender
-      if (object.name === 'AsteroidBeltBVH') return;
 
       // Skip orbit lines - they should always be visible
       // Orbit lines are THREE.Line objects whose parent name ends with 'Orbit'
@@ -646,10 +548,9 @@ export class SceneController {
         }
       }
 
-      // Handle InstancedMesh (rings, etc.) - NOT the main asteroid belts
+      // Handle InstancedMesh (rings, etc.)
       if (object instanceof THREE.InstancedMesh &&
-        object !== this.universeSkybox &&
-        !object.name.startsWith('AsteroidBelt')) {
+        object !== this.universeSkybox) {
 
         object.getWorldPosition(this.tempWorldPos);
 
@@ -763,12 +664,6 @@ export class SceneController {
       }
     });
 
-    // Update asteroid LOD based on camera distance (throttled - runs every 5 frames)
-    this.frameCount++;
-    if (this.frameCount % 5 === 0) {
-      this.asteroidBelt.updateLOD(this.camera);
-    }
-
     // Update all labels (scale based on camera distance)
     this.labelSystem.update();
 
@@ -851,7 +746,6 @@ export class SceneController {
 
     this.controls.disconnect();
     this.labelSystem.dispose();
-    this.asteroidBelt.dispose();
     this.blackHole.dispose();
     this.solarFlares.dispose();
     this.galaxy.dispose();

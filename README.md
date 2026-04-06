@@ -54,5 +54,7 @@ npm run dev
 pnpm build
 npx wrangler pages deploy dist
 >
-https://satainfo.pages.dev/
+https://sarainfo.pages.dev/
 ```
+
+If you already published and you want to have a custom domain e.g. .com or change the temporary domain e.g. .pages.dev then you can delete the .wrangler and the node_modules folder or access dash.cloudflare.com and set up a domain there for free!
